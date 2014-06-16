@@ -89,7 +89,7 @@ console.log Tv4.reformat(scheduleEventInstance, ScheduleEvent)
 
 produces:
 
-```json
+```
 { index: 1,
   openAt: Tue Feb 01 2011 01:01:01 GMT+0000 (GMT),
   dueAt: Tue Feb 01 2011 01:01:01 GMT+0000 (GMT),

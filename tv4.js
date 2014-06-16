@@ -134,6 +134,8 @@ var ValidatorContext = function ValidatorContext(parent, collectMultiple, errorM
 	this.missingMap = {};
 	this.formatValidators = parent ? Object.create(parent.formatValidators) : {};
 	this.schemas = parent ? Object.create(parent.schemas) : {};
+	this.reformats = parent ? Object.create(parent.reformats) : {};
+	this.reformatters = parent ? Object.create(parent.reformatters) : {};
 	this.collectMultiple = collectMultiple;
 	this.errors = [];
 	this.handleError = collectMultiple ? this.collectError : this.returnError;
@@ -210,6 +212,17 @@ ValidatorContext.prototype.addFormat = function (format, validator) {
 	}
 	this.formatValidators[format] = validator;
 };
+
+ValidatorContext.prototype.addReformatter = function (format, reformatter) {
+	if (typeof format === 'object') {
+		for (var key in format) {
+			this.addReformatter(key, format[key]);
+		}
+		return this;
+	}
+	this.reformatters[format] = reformatter;
+};
+
 ValidatorContext.prototype.resolveRefs = function (schema, urlHistory) {
 	if (schema['$ref'] !== undefined) {
 		urlHistory = urlHistory || {};
@@ -294,7 +307,7 @@ ValidatorContext.prototype.addSchema = function (url, schema) {
 			return;
 		}
 	}
-	if (url === getDocumentUri(url) + "#") {
+	if (url = getDocumentUri(url) + "#") {
 		// Remove empty fragment
 		url = getDocumentUri(url);
 	}
@@ -406,16 +419,39 @@ ValidatorContext.prototype.validateAll = function (data, schema, dataPathParts, 
 		}
 	}
 
-	var errorCount = this.errors.length;
-	var error = this.validateBasic(data, schema, dataPointerPath)
-		|| this.validateNumeric(data, schema, dataPointerPath)
-		|| this.validateString(data, schema, dataPointerPath)
-		|| this.validateArray(data, schema, dataPointerPath)
-		|| this.validateObject(data, schema, dataPointerPath)
-		|| this.validateCombinations(data, schema, dataPointerPath)
-		|| this.validateFormat(data, schema, dataPointerPath)
-		|| this.validateDefinedKeywords(data, schema, dataPointerPath)
-		|| null;
+
+	//check to see if there is a reformat which should be applied in this context
+	var error = null, hasReformat = false, errorCount = this.errors.length;
+	//we need a format, and a reformatter to do this 
+	if (typeof schema.format === 'string' && this.reformatters[schema.format]) {
+		//reformatters will throw an error if they're unhappy, so do this in a try
+		try {
+			//call the reformatter and get any reformatted value it produces
+			var reformatted = this.reformatters[schema.format].call(null, data, schema);
+			//if the return value exists then keep a copy of it within the reformats object
+			if (reformatted!==null && reformatted!==undefined) {
+				this.reformats[dataPointerPath] = reformatted;
+				hasReformat = true;
+			}
+		} catch(e) {
+			//errors are thrown, use the error.message and convert it 
+			error = this.createError(ErrorCodes.REFORMAT_CUSTOM, {message: e.message}).prefixWith(null, "reformat");
+		}
+	}
+
+	//should only validate if no reformat was done
+	if (!hasReformat) {
+		error = error 
+			|| this.validateBasic(data, schema, dataPointerPath)
+			|| this.validateNumeric(data, schema, dataPointerPath)
+			|| this.validateString(data, schema, dataPointerPath)
+			|| this.validateArray(data, schema, dataPointerPath)
+			|| this.validateObject(data, schema, dataPointerPath)
+			|| this.validateCombinations(data, schema, dataPointerPath)
+			|| this.validateFormat(data, schema, dataPointerPath)
+			|| this.validateDefinedKeywords(data, schema, dataPointerPath)
+			|| null;
+	}
 
 	if (topLevel) {
 		while (this.scanned.length) {
@@ -1128,6 +1164,7 @@ var ErrorCodes = {
 	// Custom/user-defined errors
 	FORMAT_CUSTOM: 500,
 	KEYWORD_CUSTOM: 501,
+	REFORMAT_CUSTOM: 502,
 	// Schema structure
 	CIRCULAR_REFERENCE: 600,
 	// Non-standard validation options
@@ -1168,6 +1205,7 @@ var ErrorMessagesDefault = {
 	// Format errors
 	FORMAT_CUSTOM: "Format validation failed ({message})",
 	KEYWORD_CUSTOM: "Keyword failed: {key} ({message})",
+	REFORMAT_CUSTOM: "Reformatting failed ({message})",
 	// Schema structure
 	CIRCULAR_REFERENCE: "Circular $refs: {urls}",
 	// Non-standard validation options
@@ -1236,6 +1274,9 @@ function createApi(language) {
 	var api = {
 		addFormat: function () {
 			globalContext.addFormat.apply(globalContext, arguments);
+		},
+		addReformatter: function () {
+			globalContext.addReformatter.apply(globalContext, arguments);	
 		},
 		language: function (code) {
 			if (!code) {
@@ -1314,6 +1355,63 @@ function createApi(language) {
 			result.missing = context.missing;
 			result.valid = (result.errors.length === 0);
 			return result;
+		},
+		reformat: function(data, schema, checkRecursive, banUnknownProperties) {
+			var context = new ValidatorContext(globalContext, false, languages[currentLanguage], checkRecursive, banUnknownProperties);
+			if (typeof schema === "string") {
+				schema = {"$ref": schema};
+			}
+			context.addSchema("", schema);
+			var error = context.validateAll(data, schema, null, null, "");
+			if (!error && banUnknownProperties) {
+				error = context.banUnknownProperties();
+			}
+			if (error !== null) {
+				var e = new Error("Unable to reformat object, it failed to comply with the schema (see err.schema and err.missing for details)");
+				e.missing = context.missing;
+				e.schema = error;
+				throw e;
+			}
+
+			for (var path in context.reformats) {
+				var reformattedValue = context.reformats[path],
+					pathSplits = path.split("/"),
+					keys = [],
+					dataPointer = data;
+				//there'll be an empty string in the splits, clean this up
+				for (var j=0; j<pathSplits.length; j++) {
+					if (pathSplits[j].length) { keys.push(pathSplits[j]); }
+				}
+				for (var i=0; i<keys.length; i++) {
+					var isLastKey = (i === keys.length-1),
+						key = keys[i];
+					if (Array.isArray(dataPointer)) {
+						//then we should try and interpret key as an index
+						var index = parseInt(key, 10);
+						//bad index? then throw something
+						if (String(index)!==key) { 
+							throw new Error("key needs to be an array index, but it isnt: " + key); 
+						}
+						if (isLastKey) {
+							//if we're the last key then splice in the reformatted value
+							dataPointer.splice(index, 1, reformattedValue);
+						} else {
+							//otherwise decend into the object in the array
+							dataPointer = dataPointer[index];
+						}
+					} else {
+						//then dataPointer is a POJO
+						if (isLastKey) {
+							//then set the reformated value
+							dataPointer[key] = reformattedValue;
+						} else {
+							//decend the object further
+							dataPointer = dataPointer[key];
+						}
+					}
+				}
+			}
+			return data;
 		},
 		addSchema: function () {
 			return globalContext.addSchema.apply(globalContext, arguments);

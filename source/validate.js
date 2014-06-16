@@ -3,6 +3,8 @@ var ValidatorContext = function ValidatorContext(parent, collectMultiple, errorM
 	this.missingMap = {};
 	this.formatValidators = parent ? Object.create(parent.formatValidators) : {};
 	this.schemas = parent ? Object.create(parent.schemas) : {};
+	this.reformats = parent ? Object.create(parent.reformats) : {};
+	this.reformatters = parent ? Object.create(parent.reformatters) : {};
 	this.collectMultiple = collectMultiple;
 	this.errors = [];
 	this.handleError = collectMultiple ? this.collectError : this.returnError;
@@ -79,6 +81,17 @@ ValidatorContext.prototype.addFormat = function (format, validator) {
 	}
 	this.formatValidators[format] = validator;
 };
+
+ValidatorContext.prototype.addReformatter = function (format, reformatter) {
+	if (typeof format === 'object') {
+		for (var key in format) {
+			this.addReformatter(key, format[key]);
+		}
+		return this;
+	}
+	this.reformatters[format] = reformatter;
+};
+
 ValidatorContext.prototype.resolveRefs = function (schema, urlHistory) {
 	if (schema['$ref'] !== undefined) {
 		urlHistory = urlHistory || {};
@@ -275,16 +288,39 @@ ValidatorContext.prototype.validateAll = function (data, schema, dataPathParts, 
 		}
 	}
 
-	var errorCount = this.errors.length;
-	var error = this.validateBasic(data, schema, dataPointerPath)
-		|| this.validateNumeric(data, schema, dataPointerPath)
-		|| this.validateString(data, schema, dataPointerPath)
-		|| this.validateArray(data, schema, dataPointerPath)
-		|| this.validateObject(data, schema, dataPointerPath)
-		|| this.validateCombinations(data, schema, dataPointerPath)
-		|| this.validateFormat(data, schema, dataPointerPath)
-		|| this.validateDefinedKeywords(data, schema, dataPointerPath)
-		|| null;
+
+	//check to see if there is a reformat which should be applied in this context
+	var error = null, hasReformat = false, errorCount = this.errors.length;
+	//we need a format, and a reformatter to do this 
+	if (typeof schema.format === 'string' && this.reformatters[schema.format]) {
+		//reformatters will throw an error if they're unhappy, so do this in a try
+		try {
+			//call the reformatter and get any reformatted value it produces
+			var reformatted = this.reformatters[schema.format].call(null, data, schema);
+			//if the return value exists then keep a copy of it within the reformats object
+			if (reformatted!==null && reformatted!==undefined) {
+				this.reformats[dataPointerPath] = reformatted;
+				hasReformat = true;
+			}
+		} catch(e) {
+			//errors are thrown, use the error.message and convert it 
+			error = this.createError(ErrorCodes.REFORMAT_CUSTOM, {message: e.message}).prefixWith(null, "reformat");
+		}
+	}
+
+	//should only validate if no reformat was done
+	if (!hasReformat) {
+		error = error 
+			|| this.validateBasic(data, schema, dataPointerPath)
+			|| this.validateNumeric(data, schema, dataPointerPath)
+			|| this.validateString(data, schema, dataPointerPath)
+			|| this.validateArray(data, schema, dataPointerPath)
+			|| this.validateObject(data, schema, dataPointerPath)
+			|| this.validateCombinations(data, schema, dataPointerPath)
+			|| this.validateFormat(data, schema, dataPointerPath)
+			|| this.validateDefinedKeywords(data, schema, dataPointerPath)
+			|| null;
+	}
 
 	if (topLevel) {
 		while (this.scanned.length) {

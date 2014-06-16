@@ -1,4 +1,4 @@
-# tv4-mutant: is a fork of tv-4
+# tv4-mutant: is a fork of tv4
 
 It adds the ability to reformat fields in the source POJO, based on definitions given in a JSON Schema.
 

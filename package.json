@@ -1,8 +1,8 @@
 {
-  "name": "tv4",
-  "version": "1.0.18",
-  "author": "Geraint Luff",
-  "description": "A public domain JSON Schema validator for JavaScript",
+  "name": "tv4-mutant",
+  "version": "0.0.1",
+  "author": "Chris Hinds",
+  "description": "Fork of tv4 by Geraint Luff which adds simple JSON reformatting",
   "keywords": [
     "json-schema",
     "schema",
@@ -11,15 +11,14 @@
   ],
   "maintainers": [
     {
-      "name": "Geraint Luff",
-      "email": "luffgd@gmail.com",
-      "web": "https://github.com/geraintluff/"
+      "name": "Chris Hinds",
+      "email": "chris.hinds@gmail.com"
     }
   ],
   "main": "tv4.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/geraintluff/tv4.git"
+    "url": "https://github.com/chrishinds/tv4.git"
   },
   "license:": [
     {

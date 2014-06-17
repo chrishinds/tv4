@@ -29,12 +29,12 @@ Tv4.addFormat(
 # or it returns null if it wishes to do nothing
 Tv4.addReformatter 'date-time', (data, schema) ->
     if not data?
-        return null                     # should pass a null data (nullness is to be decided by the schema)
+        return null
     else if data instanceof Date
         if isNaN data.getTime()
             throw new Error("invalid date object")
         else
-            return null                 # valid date objects should also pass
+            return null
     else if typeof data is 'string'
         reformatted = new Date(data)
         if isNaN reformatted.getTime()

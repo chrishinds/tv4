@@ -227,56 +227,57 @@ function createApi(language) {
 				schema = {"$ref": schema};
 			}
 			context.addSchema("", schema);
-			var error = context.validateAll(data, schema, null, null, "");
+			var error = context.validateAll(data, schema, null, null, ""),
+				result = {};
 			if (!error && banUnknownProperties) {
 				error = context.banUnknownProperties();
 			}
-			if (error !== null) {
-				var e = new Error("Unable to reformat object, it failed to comply with the schema (see err.schema and err.missing for details)");
-				e.missing = context.missing;
-				e.schema = error;
-				throw e;
-			}
+			result.error = error;
+			result.missing = context.missing;
+			result.valid = (error === null);
 
-			for (var path in context.reformats) {
-				var reformattedValue = context.reformats[path],
-					pathSplits = path.split("/"),
-					keys = [],
-					dataPointer = data;
-				//there'll be an empty string in the splits, clean this up
-				for (var j=0; j<pathSplits.length; j++) {
-					if (pathSplits[j].length) { keys.push(pathSplits[j]); }
-				}
-				for (var i=0; i<keys.length; i++) {
-					var isLastKey = (i === keys.length-1),
-						key = keys[i];
-					if (Array.isArray(dataPointer)) {
-						//then we should try and interpret key as an index
-						var index = parseInt(key, 10);
-						//bad index? then throw something
-						if (String(index)!==key) { 
-							throw new Error("key needs to be an array index, but it isnt: " + key); 
-						}
-						if (isLastKey) {
-							//if we're the last key then splice in the reformatted value
-							dataPointer.splice(index, 1, reformattedValue);
+			if (result.valid) {
+				result.reformats = context.reformats;
+				for (var path in context.reformats) {
+					var reformattedValue = context.reformats[path],
+						pathSplits = path.split("/"),
+						keys = [],
+						dataPointer = data;
+					//there'll be an empty string in the splits, clean this up
+					for (var j=0; j<pathSplits.length; j++) {
+						if (pathSplits[j].length) { keys.push(pathSplits[j]); }
+					}
+					for (var i=0; i<keys.length; i++) {
+						var isLastKey = (i === keys.length-1),
+							key = keys[i];
+						if (Array.isArray(dataPointer)) {
+							//then we should try and interpret key as an index
+							var index = parseInt(key, 10);
+							//bad index? then throw something
+							if (String(index)!==key) { 
+								throw new Error("key needs to be an array index, but it isnt: " + key); 
+							}
+							if (isLastKey) {
+								//if we're the last key then splice in the reformatted value
+								dataPointer.splice(index, 1, reformattedValue);
+							} else {
+								//otherwise decend into the object in the array
+								dataPointer = dataPointer[index];
+							}
 						} else {
-							//otherwise decend into the object in the array
-							dataPointer = dataPointer[index];
-						}
-					} else {
-						//then dataPointer is a POJO
-						if (isLastKey) {
-							//then set the reformated value
-							dataPointer[key] = reformattedValue;
-						} else {
-							//decend the object further
-							dataPointer = dataPointer[key];
+							//then dataPointer is a POJO
+							if (isLastKey) {
+								//then set the reformated value
+								dataPointer[key] = reformattedValue;
+							} else {
+								//decend the object further
+								dataPointer = dataPointer[key];
+							}
 						}
 					}
 				}
 			}
-			return data;
+			return result;
 		},
 		addSchema: function () {
 			return globalContext.addSchema.apply(globalContext, arguments);

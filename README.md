@@ -10,8 +10,8 @@ It adds two calls to the tv-4 API, ```addReformatter``` and ```reformat```
 Typically I use ```tv4.freshApi()``` to set up two engines, one purely for
 validation with no reformatters, the other for validation + deserialization.
 
-Apologies for doing examples in coffeescript, but I'm in a rush, I'll come
-back and do this properly in a bit...
+Apologies for cut and pasting a coffeescript example, but I'm in a rush, I'll
+come back and do this properly in a bit...
 
 ```coffeescript
 Tv4 = require 'tv4-mutant'
